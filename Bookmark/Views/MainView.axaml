@@ -3,46 +3,72 @@
              xmlns:d="https://github.com/avaloniaui"
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
              xmlns:vm="clr-namespace:Bookmark.ViewModels"
+             xmlns:converters="clr-namespace:Bookmark.Converters"
              x:Class="Bookmark.Views.MainView"
              x:DataType="vm:MainViewModel"
              x:Name="mainView">
-  <StackPanel Margin="10" Spacing="10">
+  <UserControl.Resources>
+    <converters:CountToBoolConverter x:Key="CountToBoolConverter" />
+  </UserControl.Resources>
 
-    <!-- Folder Selection Section -->
-    <TextBlock Text="Folder Selection" FontWeight="Bold" />
-    <Button Content="Select Folder" Command="{Binding SelectFolderCommand}" CommandParameter="{Binding #mainView}" HorizontalAlignment="Stretch" />
-    <TextBlock Text="{Binding SelectedFolder}" TextWrapping="Wrap" />
+  <ScrollViewer x:Name="RootScrollViewer">
+    <StackPanel Margin="10" Spacing="10">
 
-    <TextBlock Text="Bookmark Operation" FontWeight="Bold" />
-    <WrapPanel>
-      <Button Content="Save" Command="{Binding SaveBookmarkCommand}" CommandParameter="{Binding #mainView}" Margin="0,0,10,0" />
-      <Button Content="Load" Command="{Binding LoadBookmarkCommand}" CommandParameter="{Binding #mainView}" Margin="0,0,10,0" />
-      <Button Content="Release" Command="{Binding ReleaseBookmarkCommand}" />
-    </WrapPanel>
+      <!-- Folder Selection Section -->
+      <TextBlock Text="Folder Selection" FontWeight="Bold" />
+      <Button Content="Select Folder" Command="{Binding SelectFolderCommand}" CommandParameter="{Binding #mainView}" HorizontalAlignment="Stretch" />
+      <TextBlock Text="{Binding SelectedFolder}" TextWrapping="Wrap" />
 
-    <!-- Bookmark Content Display -->
-    <TextBlock Text="{Binding BookmarkContent}" Foreground="Blue" TextWrapping="Wrap"/>
+      <!-- Bookmark Operation Section -->
+      <TextBlock Text="Bookmark Operation" FontWeight="Bold" />
+      <WrapPanel>
+        <Button Content="Save Bookmark" Command="{Binding SaveBookmarksCommand}" CommandParameter="{Binding #mainView}" Margin="0,0,10,0" />
+        <Button Content="Load Bookmarks" Command="{Binding LoadBookmarksCommand}" CommandParameter="{Binding #mainView}" />
+      </WrapPanel>
 
-    <TextBlock Text="File Content" FontWeight="Bold" />
-    <ListBox ItemsSource="{Binding Files}" SelectedItem="{Binding SelectedFile}" Height="180">
-      <ListBox.ItemTemplate>
-        <DataTemplate>
-          <TextBlock Text="{Binding Name}" />
-        </DataTemplate>
-      </ListBox.ItemTemplate>
-    </ListBox>
-    <TextBox Text="{Binding FileContent, Mode=TwoWay}" AcceptsReturn="True" MinHeight="150" MaxHeight="180"/>
+      <!-- Bookmark Selection List -->
+      <TextBlock Text="Bookmark Select" FontWeight="Bold" IsVisible="{Binding Bookmarks.Count, Converter={StaticResource CountToBoolConverter}}" />
+      <ListBox ItemsSource="{Binding Bookmarks}" SelectedItem="{Binding SelectedBookmarkId}" Height="160"
+               IsVisible="{Binding Bookmarks.Count, Converter={StaticResource CountToBoolConverter}}"
+               ScrollViewer.HorizontalScrollBarVisibility="Auto">
+        <ListBox.ItemTemplate>
+          <DataTemplate>
+            <TextBlock Text="{Binding}" FontSize="12" />
+          </DataTemplate>
+        </ListBox.ItemTemplate>
+      </ListBox>
+      <WrapPanel IsVisible="{Binding Bookmarks.Count, Converter={StaticResource CountToBoolConverter}}">
+        <Button Content="Load Selected" Command="{Binding LoadSelectedBookmarkCommand}"
+                CommandParameter="{Binding #mainView}"/>
+        <Button Content="Release Selected" Command="{Binding ReleaseBookmarkCommand}" CommandParameter="{Binding #mainView}"
+                Margin="10,0,0,0" />
+      </WrapPanel>
 
-    <!-- File Actions Section -->
-    <TextBlock Text="File Operation" FontWeight="Bold" />
-    <StackPanel Orientation="Horizontal" Spacing="5" Margin="0,5,0,0">
-      <Button Content="Overwrite" Command="{Binding OverwriteCommand}" CommandParameter="{Binding #mainView}" />
-      <Button Content="Save As..." Command="{Binding SaveAsCommand}" CommandParameter="{Binding #mainView}" />
-      <Button Content="Delete Selected File" Command="{Binding DeleteFileCommand}" />
+      <!-- File List and Content -->
+      <TextBlock Text="File Content" FontWeight="Bold" />
+      <TextBlock Text="* Only *.txt files are listing" FontSize="12" />
+      <ListBox ItemsSource="{Binding Files}" SelectedItem="{Binding SelectedFile}" Height="160"
+               ScrollViewer.HorizontalScrollBarVisibility="Auto">
+        <ListBox.ItemTemplate>
+          <DataTemplate>
+            <TextBlock Text="{Binding Name}" FontSize="12" />
+          </DataTemplate>
+        </ListBox.ItemTemplate>
+      </ListBox>
+      <!-- Added GotFocus and LostFocus event handlers for the TextBox -->
+      <TextBox x:Name="FileContentTextBox" Text="{Binding FileContent, Mode=TwoWay}" AcceptsReturn="True" MinHeight="120" MaxHeight="180"/>
+
+      <!-- File Actions Section -->
+      <TextBlock Text="File Operations" FontWeight="Bold" />
+      <StackPanel Orientation="Horizontal" Spacing="5" Margin="0,5,0,0">
+        <Button Content="Overwrite" Command="{Binding OverwriteCommand}" CommandParameter="{Binding #mainView}" />
+        <Button Content="Save As..." Command="{Binding SaveAsCommand}" CommandParameter="{Binding #mainView}" />
+        <Button Content="Delete Selected" Command="{Binding DeleteFileCommand}" />
+      </StackPanel>
+
+      <!-- Error Message -->
+      <TextBlock Text="{Binding ErrorMessage}" Foreground="Red" IsVisible="{Binding IsErrorMessageVisible}" FontWeight="Bold" TextWrapping="Wrap" />
+
     </StackPanel>
-
-    <!-- Error Message -->
-    <TextBlock Text="{Binding ErrorMessage}" Foreground="Red" IsVisible="{Binding IsErrorMessageVisible}" FontWeight="Bold" TextWrapping="Wrap" />
-
-  </StackPanel>
+  </ScrollViewer>
 </UserControl>
