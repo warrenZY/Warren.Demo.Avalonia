@@ -1,0 +1,48 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="https://github.com/avaloniaui"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:vm="clr-namespace:Bookmark.ViewModels"
+             x:Class="Bookmark.Views.MainView"
+             x:DataType="vm:MainViewModel"
+             x:Name="mainView">
+  <StackPanel Margin="10" Spacing="10">
+
+    <!-- Folder Selection Section -->
+    <TextBlock Text="Folder Selection" FontWeight="Bold" />
+    <Button Content="Select Folder" Command="{Binding SelectFolderCommand}" CommandParameter="{Binding #mainView}" HorizontalAlignment="Stretch" />
+    <TextBlock Text="{Binding SelectedFolder}" TextWrapping="Wrap" />
+
+    <TextBlock Text="Bookmark Operation" FontWeight="Bold" />
+    <WrapPanel>
+      <Button Content="Save" Command="{Binding SaveBookmarkCommand}" CommandParameter="{Binding #mainView}" Margin="0,0,10,0" />
+      <Button Content="Load" Command="{Binding LoadBookmarkCommand}" CommandParameter="{Binding #mainView}" Margin="0,0,10,0" />
+      <Button Content="Release" Command="{Binding ReleaseBookmarkCommand}" />
+    </WrapPanel>
+
+    <!-- Bookmark Content Display -->
+    <TextBlock Text="{Binding BookmarkContent}" Foreground="Blue" TextWrapping="Wrap"/>
+
+    <TextBlock Text="File Content" FontWeight="Bold" />
+    <ListBox ItemsSource="{Binding Files}" SelectedItem="{Binding SelectedFile}" Height="180">
+      <ListBox.ItemTemplate>
+        <DataTemplate>
+          <TextBlock Text="{Binding Name}" />
+        </DataTemplate>
+      </ListBox.ItemTemplate>
+    </ListBox>
+    <TextBox Text="{Binding FileContent, Mode=TwoWay}" AcceptsReturn="True" MinHeight="150" MaxHeight="180"/>
+
+    <!-- File Actions Section -->
+    <TextBlock Text="File Operation" FontWeight="Bold" />
+    <StackPanel Orientation="Horizontal" Spacing="5" Margin="0,5,0,0">
+      <Button Content="Overwrite" Command="{Binding OverwriteCommand}" CommandParameter="{Binding #mainView}" />
+      <Button Content="Save As..." Command="{Binding SaveAsCommand}" CommandParameter="{Binding #mainView}" />
+      <Button Content="Delete Selected File" Command="{Binding DeleteFileCommand}" />
+    </StackPanel>
+
+    <!-- Error Message -->
+    <TextBlock Text="{Binding ErrorMessage}" Foreground="Red" IsVisible="{Binding IsErrorMessageVisible}" FontWeight="Bold" TextWrapping="Wrap" />
+
+  </StackPanel>
+</UserControl>
