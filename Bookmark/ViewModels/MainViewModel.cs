@@ -133,43 +133,38 @@ public class MainViewModel : ReactiveObject
     public MainViewModel()
     {
         SelectFolderCommand = ReactiveCommand.CreateFromTask<Control>(SelectFolderAsync);
-
-        var canOverwrite = this.WhenAnyValue(x => x.SelectedFile).Select(x => x != null);
-        OverwriteCommand = ReactiveCommand.CreateFromTask<Control>(OverwriteAsync, canOverwrite);
+        OverwriteCommand = ReactiveCommand.CreateFromTask<Control>(OverwriteAsync, this.WhenAnyValue(x => x.SelectedFile).Select(x => x != null));
         SaveAsCommand = ReactiveCommand.CreateFromTask<Control>(SaveAsAsync);
-
-        var canSaveBookmark = this.WhenAnyValue(x => x.LastSelectedFolder).Select(x => x != null);
-        SaveBookmarksCommand = ReactiveCommand.CreateFromTask<Control>(SaveBookmarksAsync, canSaveBookmark);
-
+        SaveBookmarksCommand = ReactiveCommand.CreateFromTask<Control>(SaveBookmarksAsync, this.WhenAnyValue(x => x.LastSelectedFolder).Select(x => x != null));
         LoadBookmarksCommand = ReactiveCommand.CreateFromTask<Control>(LoadBookmarksAsync);
+        ReleaseBookmarkCommand = ReactiveCommand.CreateFromTask<Control>(ReleaseBookmarkAsync, this.WhenAnyValue(x => x.SelectedBookmarkId).Select(x => x != null));
+        DeleteFileCommand = ReactiveCommand.CreateFromTask(DeleteFileAsync, this.WhenAnyValue(x => x.SelectedFile).Select(x => x != null));
+        LoadSelectedBookmarkCommand = ReactiveCommand.CreateFromTask<Control>(LoadSelectedBookmarkAsync, this.WhenAnyValue(x => x.SelectedBookmarkId).Select(x => x != null));
 
-        var canReleaseBookmark = this.WhenAnyValue(x => x.SelectedBookmarkId).Select(x => x != null);
-        ReleaseBookmarkCommand = ReactiveCommand.CreateFromTask<Control>(ReleaseBookmarkAsync, canReleaseBookmark);
-
-        var canDeleteFile = this.WhenAnyValue(x => x.SelectedFile).Select(x => x != null);
-        DeleteFileCommand = ReactiveCommand.CreateFromTask(DeleteFileAsync, canDeleteFile);
-
-        var canLoadSelectedBookmark = this.WhenAnyValue(x => x.SelectedBookmarkId).Select(x => x != null);
-        LoadSelectedBookmarkCommand = ReactiveCommand.CreateFromTask<Control>(LoadSelectedBookmarkAsync, canLoadSelectedBookmark);
-
-        SelectFolderCommand.ThrownExceptions.Subscribe(ex => ErrorMessage = $"Error: An exception occurred while selecting a folder - {ex.Message}");
-        OverwriteCommand.ThrownExceptions.Subscribe(ex => ErrorMessage = $"Error: An exception occurred while overwriting the file - {ex.Message}");
-        SaveAsCommand.ThrownExceptions.Subscribe(ex => ErrorMessage = $"Error: An exception occurred while saving as a new file - {ex.Message}");
-        SaveBookmarksCommand.ThrownExceptions.Subscribe(ex => ErrorMessage = $"Error: An exception occurred while saving the bookmark - {ex.Message}");
-        LoadBookmarksCommand.ThrownExceptions.Subscribe(ex => ErrorMessage = $"Error: An exception occurred while loading the bookmark - {ex.Message}");
-        ReleaseBookmarkCommand.ThrownExceptions.Subscribe(ex => ErrorMessage = $"Error: An exception occurred while releasing the bookmark - {ex.Message}");
-        DeleteFileCommand.ThrownExceptions.Subscribe(ex => ErrorMessage = $"Error: An exception occurred while deleting the file - {ex.Message}");
-        LoadSelectedBookmarkCommand.ThrownExceptions.Subscribe(ex => ErrorMessage = $"Error: An exception occurred while loading the selected bookmark - {ex.Message}");
+        SubscribeToCommandExceptions();
 
         this.WhenAnyValue(x => x.SelectedFile)
             .Where(file => file != null)
-            .Subscribe(async file =>
-            {
-                await LoadFileContentAsync(file);
-            });
+            .Subscribe(async file => await LoadFileContentAsync(file));
 
         this.WhenAnyValue(x => x.ErrorMessage)
             .Subscribe(_ => this.RaisePropertyChanged(nameof(IsErrorMessageVisible)));
+    }
+
+    /// <summary>
+    /// Handle errors via ThrownExceptions from commands.
+    /// </summary>
+    private void SubscribeToCommandExceptions()
+    {
+        SelectFolderCommand.ThrownExceptions
+            .Merge(OverwriteCommand.ThrownExceptions)
+            .Merge(SaveAsCommand.ThrownExceptions)
+            .Merge(SaveBookmarksCommand.ThrownExceptions)
+            .Merge(LoadBookmarksCommand.ThrownExceptions)
+            .Merge(ReleaseBookmarkCommand.ThrownExceptions)
+            .Merge(DeleteFileCommand.ThrownExceptions)
+            .Merge(LoadSelectedBookmarkCommand.ThrownExceptions)
+            .Subscribe(ex => ErrorMessage = $"Error: {ex.Message}");
     }
 
     /// <summary>
@@ -180,27 +175,20 @@ public class MainViewModel : ReactiveObject
     private async Task SelectFolderAsync(Control control)
     {
         ErrorMessage = null;
-        try
+        var toplevel = TopLevel.GetTopLevel(control);
+        if (toplevel?.StorageProvider != null)
         {
-            var toplevel = TopLevel.GetTopLevel(control);
-            if (toplevel?.StorageProvider != null)
-            {
-                var folders = await toplevel.StorageProvider.OpenFolderPickerAsync(new FolderPickerOpenOptions());
-                var selectedFolder = folders?.FirstOrDefault();
+            var folders = await toplevel.StorageProvider.OpenFolderPickerAsync(new FolderPickerOpenOptions());
+            var selectedFolder = folders?.FirstOrDefault();
 
-                if (selectedFolder != null)
-                {
-                    LastSelectedFolder = selectedFolder;
-                    await ListFilesAsync(selectedFolder);
-                    SelectedFolder = selectedFolder.Path.LocalPath;
-                    CurrentActiveBookmarkId = null; // Clear active bookmark ID when a new folder is selected manually
-                    Bookmarks.Clear(); // Clear the bookmark selection list
-                }
+            if (selectedFolder != null)
+            {
+                LastSelectedFolder = selectedFolder;
+                await ListFilesAsync(selectedFolder);
+                SelectedFolder = selectedFolder.Path.LocalPath;
+                CurrentActiveBookmarkId = null; // Clear active bookmark ID when a new folder is selected manually
+                Bookmarks.Clear(); // Clear the bookmark selection list
             }
-        }
-        catch (Exception ex)
-        {
-            ErrorMessage = $"Error: An exception occurred while selecting a folder - {ex.Message}";
         }
     }
 
@@ -211,23 +199,16 @@ public class MainViewModel : ReactiveObject
     /// <returns>A task that represents the asynchronous operation.</returns>
     private async Task ListFilesAsync(IStorageFolder folder)
     {
-        try
+        var files = new List<IStorageFile>();
+        await foreach (var item in folder.GetItemsAsync())
         {
-            var files = new List<IStorageFile>();
-            await foreach (var item in folder.GetItemsAsync())
+            if (item is IStorageFile file && file.Name.EndsWith(".txt", StringComparison.OrdinalIgnoreCase))
             {
-                if (item is IStorageFile file && file.Name.EndsWith(".txt", StringComparison.OrdinalIgnoreCase))
-                {
-                    files.Add(file);
-                }
+                files.Add(file);
             }
-            Files = new ObservableCollection<IStorageFile>(files);
-            ErrorMessage = null;
         }
-        catch (Exception ex)
-        {
-            ErrorMessage = $"Error: An exception occurred while listing folder files - {ex.Message}";
-        }
+        Files = new ObservableCollection<IStorageFile>(files);
+        ErrorMessage = null;
     }
 
     /// <summary>
@@ -238,19 +219,12 @@ public class MainViewModel : ReactiveObject
     private async Task OverwriteAsync(Control control)
     {
         ErrorMessage = null;
-        try
+        if (SelectedFile != null && FileContent != null)
         {
-            if (SelectedFile != null && FileContent != null)
-            {
-                await using var stream = await SelectedFile.OpenWriteAsync();
-                await using var streamWriter = new StreamWriter(stream, Encoding.UTF8);
-                await streamWriter.WriteAsync(FileContent);
-                ErrorMessage = $"File '{SelectedFile.Name}' overwritten successfully!";
-            }
-        }
-        catch (Exception ex)
-        {
-            ErrorMessage = $"Error: An exception occurred while overwriting the file - {ex.Message}";
+            await using var stream = await SelectedFile.OpenWriteAsync();
+            await using var streamWriter = new StreamWriter(stream, Encoding.UTF8);
+            await streamWriter.WriteAsync(FileContent);
+            ErrorMessage = $"File '{SelectedFile.Name}' overwritten successfully!";
         }
     }
 
@@ -262,42 +236,35 @@ public class MainViewModel : ReactiveObject
     private async Task SaveAsAsync(Control control)
     {
         ErrorMessage = null;
-        try
+        var toplevel = TopLevel.GetTopLevel(control);
+        if (toplevel?.StorageProvider != null && FileContent != null)
         {
-            var toplevel = TopLevel.GetTopLevel(control);
-            if (toplevel?.StorageProvider != null && FileContent != null)
+            var fileToSave = await toplevel.StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions
             {
-                var fileToSave = await toplevel.StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions
+                Title = "Save File As...",
+                SuggestedFileName = SelectedFile?.Name ?? "new_file.txt",
+                FileTypeChoices = new[]
                 {
-                    Title = "Save File As...",
-                    SuggestedFileName = SelectedFile?.Name ?? "new_file.txt",
-                    FileTypeChoices = new[]
+                    new FilePickerFileType("Text Files")
                     {
-                        new FilePickerFileType("Text Files")
-                        {
-                            Patterns = new[] { "*.txt" },
-                            AppleUniformTypeIdentifiers = new[] { "public.plain-text" }
-                        }
-                    }
-                });
-
-                if (fileToSave != null)
-                {
-                    await using var stream = await fileToSave.OpenWriteAsync();
-                    await using var streamWriter = new StreamWriter(stream, Encoding.UTF8);
-                    await streamWriter.WriteAsync(FileContent);
-                    ErrorMessage = $"File '{fileToSave.Name}' saved successfully!";
-
-                    if (LastSelectedFolder != null)
-                    {
-                        await ListFilesAsync(LastSelectedFolder);
+                        Patterns = new[] { "*.txt" },
+                        AppleUniformTypeIdentifiers = new[] { "public.plain-text" }
                     }
                 }
+            });
+
+            if (fileToSave != null)
+            {
+                await using var stream = await fileToSave.OpenWriteAsync();
+                await using var streamWriter = new StreamWriter(stream, Encoding.UTF8);
+                await streamWriter.WriteAsync(FileContent);
+                ErrorMessage = $"File '{fileToSave.Name}' saved successfully!";
+
+                if (LastSelectedFolder != null)
+                {
+                    await ListFilesAsync(LastSelectedFolder);
+                }
             }
-        }
-        catch (Exception ex)
-        {
-            ErrorMessage = $"Error: An exception occurred while saving the file - {ex.Message}";
         }
     }
 
@@ -314,17 +281,10 @@ public class MainViewModel : ReactiveObject
             return;
         }
 
-        try
-        {
-            await using var stream = await file.OpenReadAsync();
-            using var streamReader = new StreamReader(stream, Encoding.UTF8);
-            FileContent = await streamReader.ReadToEndAsync();
-            ErrorMessage = null;
-        }
-        catch (Exception ex)
-        {
-            ErrorMessage = $"Error: An exception occurred while loading file content - {ex.Message}";
-        }
+        await using var stream = await file.OpenReadAsync();
+        using var streamReader = new StreamReader(stream, Encoding.UTF8);
+        FileContent = await streamReader.ReadToEndAsync();
+        ErrorMessage = null;
     }
 
     /// <summary>
@@ -335,41 +295,34 @@ public class MainViewModel : ReactiveObject
     private async Task SaveBookmarksAsync(Control control)
     {
         ErrorMessage = null;
-        try
+        if (LastSelectedFolder == null)
         {
-            if (LastSelectedFolder == null)
-            {
-                ErrorMessage = "Error: No folder selected to save a bookmark.";
-                return;
-            }
-
-            var bookmarkId = await LastSelectedFolder.SaveBookmarkAsync();
-
-            if (bookmarkId != null)
-            {
-                var directory = Path.GetDirectoryName(BookmarkFilePath);
-                if (!string.IsNullOrEmpty(directory) && !Directory.Exists(directory))
-                {
-                    Directory.CreateDirectory(directory);
-                }
-
-                var bookmarks = File.Exists(BookmarkFilePath)
-                    ? JsonSerializer.Deserialize<HashSet<string>>(await File.ReadAllTextAsync(BookmarkFilePath)) ?? new()
-                    : new HashSet<string>();
-
-                bookmarks.Add(bookmarkId);
-                await File.WriteAllTextAsync(BookmarkFilePath, JsonSerializer.Serialize(bookmarks));
-                CurrentActiveBookmarkId = bookmarkId;
-                ErrorMessage = "Bookmark saved successfully!";
-            }
-            else
-            {
-                ErrorMessage = "Error: Could not save bookmark. The OS denied the request.";
-            }
+            ErrorMessage = "Error: No folder selected to save a bookmark.";
+            return;
         }
-        catch (Exception ex)
+
+        var bookmarkId = await LastSelectedFolder.SaveBookmarkAsync();
+
+        if (bookmarkId != null)
         {
-            ErrorMessage = $"Error: An exception occurred while saving the bookmark - {ex.Message}";
+            var directory = Path.GetDirectoryName(BookmarkFilePath);
+            if (!string.IsNullOrEmpty(directory) && !Directory.Exists(directory))
+            {
+                Directory.CreateDirectory(directory);
+            }
+
+            var bookmarks = File.Exists(BookmarkFilePath)
+                ? JsonSerializer.Deserialize<HashSet<string>>(await File.ReadAllTextAsync(BookmarkFilePath)) ?? new()
+                : new HashSet<string>();
+
+            bookmarks.Add(bookmarkId);
+            await File.WriteAllTextAsync(BookmarkFilePath, JsonSerializer.Serialize(bookmarks));
+            CurrentActiveBookmarkId = bookmarkId;
+            ErrorMessage = "Bookmark saved successfully!";
+        }
+        else
+        {
+            ErrorMessage = "Error: Could not save bookmark. The OS denied the request.";
         }
     }
 
@@ -381,32 +334,24 @@ public class MainViewModel : ReactiveObject
     private async Task LoadBookmarksAsync(Control control)
     {
         ErrorMessage = null;
-        try
+        if (File.Exists(BookmarkFilePath))
         {
-            if (File.Exists(BookmarkFilePath))
+            var bookmarks = JsonSerializer.Deserialize<HashSet<string>>(await File.ReadAllTextAsync(BookmarkFilePath));
+            if (bookmarks != null && bookmarks.Count > 0)
             {
-                var bookmarks = JsonSerializer.Deserialize<HashSet<string>>(await File.ReadAllTextAsync(BookmarkFilePath));
-                if (bookmarks != null && bookmarks.Count > 0)
-                {
-                    Bookmarks = new ObservableCollection<string>(bookmarks);
-                    ErrorMessage = "Bookmarks loaded. Please select a bookmark from the list.";
-                }
-                else
-                {
-                    Bookmarks.Clear();
-                    ErrorMessage = "No bookmarks found.";
-                }
+                Bookmarks = new ObservableCollection<string>(bookmarks);
+                ErrorMessage = "Bookmarks loaded. Please select a bookmark from the list.";
             }
             else
             {
                 Bookmarks.Clear();
-                ErrorMessage = "Bookmark file not found.";
+                ErrorMessage = "No bookmarks found.";
             }
         }
-        catch (Exception ex)
+        else
         {
             Bookmarks.Clear();
-            ErrorMessage = $"Error: An exception occurred while loading the bookmark - {ex.Message}";
+            ErrorMessage = "Bookmark file not found.";
         }
     }
 
@@ -418,40 +363,32 @@ public class MainViewModel : ReactiveObject
     private async Task LoadSelectedBookmarkAsync(Control control)
     {
         ErrorMessage = null;
-        try
+        var toplevel = TopLevel.GetTopLevel(control);
+        if (toplevel?.StorageProvider != null && !string.IsNullOrEmpty(SelectedBookmarkId))
         {
-            var toplevel = TopLevel.GetTopLevel(control);
-            if (toplevel?.StorageProvider != null && !string.IsNullOrEmpty(SelectedBookmarkId))
+            var folder = await toplevel.StorageProvider.OpenFolderBookmarkAsync(SelectedBookmarkId);
+
+            if (folder != null)
             {
-                var folder = await toplevel.StorageProvider.OpenFolderBookmarkAsync(SelectedBookmarkId);
+                LastSelectedFolder = folder;
+                SelectedFolder = folder.Path.LocalPath;
+                await ListFilesAsync(folder);
+                CurrentActiveBookmarkId = SelectedBookmarkId;
 
-                if (folder != null)
+                if (string.IsNullOrEmpty(ErrorMessage))
                 {
-                    LastSelectedFolder = folder;
-                    SelectedFolder = folder.Path.LocalPath;
-                    await ListFilesAsync(folder);
-                    CurrentActiveBookmarkId = SelectedBookmarkId;
-
-                    if (string.IsNullOrEmpty(ErrorMessage))
-                    {
-                        ErrorMessage = "Bookmark loaded successfully, file list updated!";
-                    }
-                    else
-                    {
-                        ErrorMessage = $"Bookmark loaded successfully, but could not access folder contents. This may be due to permission restrictions. Please select the folder again.";
-                    }
+                    ErrorMessage = "Bookmark loaded successfully, file list updated!";
                 }
                 else
                 {
-                    CurrentActiveBookmarkId = null;
-                    ErrorMessage = "Could not access the bookmarked folder. The bookmark may be invalid or permissions have been revoked. Please select the folder again.";
+                    ErrorMessage = $"Bookmark loaded successfully, but could not access folder contents. This may be due to permission restrictions. Please select the folder again.";
                 }
             }
-        }
-        catch (Exception ex)
-        {
-            CurrentActiveBookmarkId = null;
-            ErrorMessage = $"Error: An exception occurred while loading the selected bookmark - {ex.Message}";
+            else
+            {
+                CurrentActiveBookmarkId = null;
+                ErrorMessage = "Could not access the bookmarked folder. The bookmark may be invalid or permissions have been revoked. Please select the folder again.";
+            }
         }
     }
 
@@ -463,45 +400,32 @@ public class MainViewModel : ReactiveObject
     private async Task ReleaseBookmarkAsync(Control control)
     {
         ErrorMessage = null;
-        try
+        if (!string.IsNullOrEmpty(SelectedBookmarkId))
         {
-            // The button is only enabled when a bookmark is selected, so SelectedBookmarkId won't be null.
-            if (!string.IsNullOrEmpty(SelectedBookmarkId))
+            var bookmarks = File.Exists(BookmarkFilePath)
+                ? JsonSerializer.Deserialize<HashSet<string>>(await File.ReadAllTextAsync(BookmarkFilePath)) ?? new()
+                : new HashSet<string>();
+
+            bookmarks.Remove(SelectedBookmarkId);
+            await File.WriteAllTextAsync(BookmarkFilePath, JsonSerializer.Serialize(bookmarks));
+
+            if (SelectedBookmarkId == CurrentActiveBookmarkId)
             {
-                var bookmarks = File.Exists(BookmarkFilePath)
-                    ? JsonSerializer.Deserialize<HashSet<string>>(await File.ReadAllTextAsync(BookmarkFilePath)) ?? new()
-                    : new HashSet<string>();
-
-                bookmarks.Remove(SelectedBookmarkId);
-                await File.WriteAllTextAsync(BookmarkFilePath, JsonSerializer.Serialize(bookmarks));
-
-                // Clear the active folder state if the released bookmark was the active one
-                if (SelectedBookmarkId == CurrentActiveBookmarkId)
-                {
-                    LastSelectedFolder = null;
-                    SelectedFolder = null;
-                    Files.Clear();
-                    FileContent = null;
-                    SelectedFile = null;
-                    CurrentActiveBookmarkId = null;
-                }
-
-                // Clear the selection after releasing
-                SelectedBookmarkId = null;
-
-                ErrorMessage = "Bookmark released and removed from file successfully.";
-
-                // Refresh the list as requested
-                await LoadBookmarksAsync(control);
+                LastSelectedFolder = null;
+                SelectedFolder = null;
+                Files.Clear();
+                FileContent = null;
+                SelectedFile = null;
+                CurrentActiveBookmarkId = null;
             }
-            else
-            {
-                ErrorMessage = "Error: No bookmark is selected to release.";
-            }
+
+            SelectedBookmarkId = null;
+            ErrorMessage = "Bookmark released and removed from file successfully.";
+            await LoadBookmarksAsync(control);
         }
-        catch (Exception ex)
+        else
         {
-            ErrorMessage = $"Error: An exception occurred while releasing the bookmark - {ex.Message}";
+            ErrorMessage = "Error: No bookmark is selected to release.";
         }
     }
 
@@ -512,20 +436,13 @@ public class MainViewModel : ReactiveObject
     private async Task DeleteFileAsync()
     {
         ErrorMessage = null;
-        try
+        if (SelectedFile != null && LastSelectedFolder != null)
         {
-            if (SelectedFile != null && LastSelectedFolder != null)
-            {
-                await SelectedFile.DeleteAsync();
-                FileContent = null;
-                SelectedFile = null;
-                await ListFilesAsync(LastSelectedFolder);
-                ErrorMessage = "File deleted successfully!";
-            }
-        }
-        catch (Exception ex)
-        {
-            ErrorMessage = $"Error: An exception occurred while deleting the file - {ex.Message}";
+            await SelectedFile.DeleteAsync();
+            FileContent = null;
+            SelectedFile = null;
+            await ListFilesAsync(LastSelectedFolder);
+            ErrorMessage = "File deleted successfully!";
         }
     }
 }
